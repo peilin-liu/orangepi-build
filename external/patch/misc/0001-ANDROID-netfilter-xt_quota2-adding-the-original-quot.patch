@@ -1,0 +1,605 @@
+From 357874efef58d43dbaa759213fd7641999ab662d Mon Sep 17 00:00:00 2001
+From: JP Abgrall <jpa@google.com>
+Date: Tue, 21 Jun 2011 11:14:49 -0700
+Subject: [PATCH] ANDROID: netfilter: xt_quota2: adding the original quota2
+ from xtables-addons
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The original xt_quota in the kernel is plain broken:
+  - counts quota at a per CPU level
+    (was written back when ubiquitous SMP was just a dream)
+  - provides no way to count across IPV4/IPV6.
+
+This patch is the original unaltered code from:
+  http://sourceforge.net/projects/xtables-addons
+
+  at commit e84391ce665cef046967f796dd91026851d6bbf3
+
+Bug: 120445421
+Change-Id: I19d49858840effee9ecf6cff03c23b45a97efdeb
+Signed-off-by: JP Abgrall <jpa@google.com>
+[astrachan: Folded 4d33aa305871 ("netfilter: xt_quota2: fixup the quota2,
+            and enable.") into this patch]
+Signed-off-by: Alistair Strachan <astrachan@google.com>
+
+ANDROID: fix kernelci build-break
+
+Added missing #includes to fix 'allmodconfig' builds
+
+Bug: 120445624
+Bug: 120445421
+Change-Id: Ia8823adf2b33aa31c6d3f9d50ca7679ef4a64eaa
+Signed-off-by: Todd Kjos <tkjos@google.com>
+
+ANDROID: move up spin_unlock_bh() ahead of remove_proc_entry()
+
+It causes BUG because remove_proc_entry may sleep while holding spinlock.
+
+BUG: scheduling while atomic: ip6tables-resto/887/0x00000202
+[<c0f03f00>] (wait_for_completion) from [<c031b8c8>] (proc_entry_rundown+0x74/0xd0)
+[<c031b854>] (proc_entry_rundown) from [<c03225c4>] (remove_proc_entry+0xc0/0x18c)
+[<c0322504>] (remove_proc_entry) from [<c0d656e0>] (quota_mt2_destroy+0x88/0xa8)
+[<c0d65658>] (quota_mt2_destroy) from [<c0e405f0>] (cleanup_entry+0x6c/0xf0)
+[<c0e40584>] (cleanup_entry) from [<c0e41400>] (do_replace.constprop.2+0x314/0x438)
+[<c0e410ec>] (do_replace.constprop.2) from [<c0e41640>] (do_ip6t_set_ctl+0x11c/0x238)
+[<c0e41524>] (do_ip6t_set_ctl) from [<c0d2e7ec>] (nf_setsockopt+0xd4/0xf0)
+[<c0d2e718>] (nf_setsockopt) from [<c0e16bb8>] (ipv6_setsockopt+0x90/0xb8)
+[<c0e16b28>] (ipv6_setsockopt) from [<c0e1e908>] (rawv6_setsockopt+0x54/0x22c)
+[<c0e1e8b4>] (rawv6_setsockopt) from [<c0cb48dc>] (sock_common_setsockopt+0x28/0x30)
+[<c0cb48b4>] (sock_common_setsockopt) from [<c0cb3ac8>] (SyS_setsockopt+0xb8/0x110)
+[<c0cb3a10>] (SyS_setsockopt) from [<c01094e0>] (ret_fast_syscall+0x0/0x48)
+
+This is a fix for an Android specific feature which was imported
+from unofficial upstream (xtables-addons), which also has the same issue:
+  https://sourceforge.net/p/xtables-addons/xtables-addons/ci/master/tree/extensions/xt_quota2.c#l235
+
+After this change the proc entry may now be removed later, when we're already
+adding another one, potentially with the same name, this will simply
+fail during creation, see error path for this at:
+  https://sourceforge.net/p/xtables-addons/xtables-addons/ci/master/tree/extensions/xt_quota2.c#l179
+
+Bug: 143092160
+Signed-off-by: Maciej Żenczykowski <maze@google.com>
+Signed-off-by: DongJoo Kim <micomx@gmail.com>
+Change-Id: I3ff3883738353785f5792c5f06bf6b72985c4c68
+
+ANDROID: fix up xt_quota2 for proc_ops changes
+
+proc now uses proc_ops, not file_operations, so fix it up to handle the
+5.6-rc1 merge.
+
+Signed-off-by: Greg Kroah-Hartman <gregkh@google.com>
+Change-Id: I80b5ca4448bffa3a0c5cc99a964b7e8aba2450c0
+
+ANDROID: fix a bug in quota2
+
+If quota is precisely equal to skb->len then a notification
+would not be sent due to immediately hitting 0.
+
+This fixes that, and takes the opportunity to slightly clean
+up the code and make quota behave more correctly for packet mode
+as well.
+
+Test: builds, net tests continue to pass
+Bug: 164336990
+Signed-off-by: Maciej Żenczykowski <maze@google.com>
+Change-Id: I78a11b48794496255513a6226c0469d809d7aa56
+
+ANDROID: xt_quota2: remove trailing junk which might have a digit in it
+
+Make sure string only contains the characters specified by userspace.
+
+Fix cherry-picked from xtables-extensions project
+
+Signed-off-by: Sam Liddicott <sam@liddicott.com>
+Bug: 196046570
+Test: passed netd test suites
+Fixes: 10cda83af99d ("ANDROID: netfilter: xt_quota2: adding the
+original quota2 from xtables-addons")
+Signed-off-by: Todd Kjos <tkjos@google.com>
+(cherry picked from https://git.code.sf.net/p/xtables-addons/xtables-addons
+bc2bcc383c70b293bd816c29523a952ca8736fb5)
+Change-Id: I965448564906e5fbf0fe6d6414f44d9e257ea195
+
+ANDROID: xt_quota2: clear quota2_log message before sending
+
+Initialize message buffer for quota2_log to avoid sending
+random data.
+
+Bug: 196046570
+Test: passed netd test suites
+Fixes: 10cda83af99d ("ANDROID: netfilter: xt_quota2: adding the
+original quota2 from xtables-addons")
+Signed-off-by: Todd Kjos <tkjos@google.com>
+Change-Id: Ic9f34aaa2593809b375fc649b74567190c99dc62
+
+ANDROID: xt_quota2: set usersize in xt_match registration object
+
+Explicitly set what is visible to userspace
+
+Bug: 196046570
+Test: passed netd test suites
+Signed-off-by: Todd Kjos <tkjos@google.com>
+Change-Id: Iacec0ef8ae290e01f1b60508d8abcd40a3653c83
+---
+ include/linux/netfilter/xt_quota2.h |  26 ++
+ net/netfilter/Kconfig               |  23 ++
+ net/netfilter/xt_quota2.c           | 397 ++++++++++++++++++++++++++++
+ 3 files changed, 446 insertions(+)
+ create mode 100644 include/linux/netfilter/xt_quota2.h
+ create mode 100644 net/netfilter/xt_quota2.c
+
+diff --git a/include/linux/netfilter/xt_quota2.h b/include/linux/netfilter/xt_quota2.h
+new file mode 100644
+index 000000000..a3918718c
+--- /dev/null
++++ b/include/linux/netfilter/xt_quota2.h
+@@ -0,0 +1,26 @@
++#ifndef _XT_QUOTA_H
++#define _XT_QUOTA_H
++#include <linux/types.h>
++
++enum xt_quota_flags {
++	XT_QUOTA_INVERT    = 1 << 0,
++	XT_QUOTA_GROW      = 1 << 1,
++	XT_QUOTA_PACKET    = 1 << 2,
++	XT_QUOTA_NO_CHANGE = 1 << 3,
++	XT_QUOTA_MASK      = 0x0F,
++};
++
++struct xt_quota_counter;
++
++struct xt_quota_mtinfo2 {
++	char name[15];
++	u_int8_t flags;
++
++	/* Comparison-invariant */
++	aligned_u64 quota;
++
++	/* Used internally by the kernel */
++	struct xt_quota_counter *master __attribute__((aligned(8)));
++};
++
++#endif /* _XT_QUOTA_H */
+diff --git a/net/netfilter/Kconfig b/net/netfilter/Kconfig
+index 4b8d04640..09b2c5496 100644
+--- a/net/netfilter/Kconfig
++++ b/net/netfilter/Kconfig
+@@ -1523,6 +1523,29 @@ config NETFILTER_XT_MATCH_QUOTA
+ 	  If you want to compile it as a module, say M here and read
+ 	  <file:Documentation/kbuild/modules.rst>.  If unsure, say `N'.
+ 
++config NETFILTER_XT_MATCH_QUOTA2
++	tristate '"quota2" match support'
++	depends on NETFILTER_ADVANCED
++	help
++	  This option adds a `quota2' match, which allows to match on a
++	  byte counter correctly and not per CPU.
++	  It allows naming the quotas.
++	  This is based on http://xtables-addons.git.sourceforge.net
++
++	  If you want to compile it as a module, say M here and read
++	  <file:Documentation/kbuild/modules.txt>.  If unsure, say `N'.
++
++config NETFILTER_XT_MATCH_QUOTA2_LOG
++	bool '"quota2" Netfilter LOG support'
++	depends on NETFILTER_XT_MATCH_QUOTA2
++	default n
++	help
++	  This option allows `quota2' to log ONCE when a quota limit
++	  is passed. It logs via NETLINK using the NETLINK_NFLOG family.
++	  It logs similarly to how ipt_ULOG would without data.
++
++	  If unsure, say `N'.
++
+ config NETFILTER_XT_MATCH_RATEEST
+ 	tristate '"rateest" match support'
+ 	depends on NETFILTER_ADVANCED
+diff --git a/net/netfilter/xt_quota2.c b/net/netfilter/xt_quota2.c
+new file mode 100644
+index 000000000..641e36e89
+--- /dev/null
++++ b/net/netfilter/xt_quota2.c
+@@ -0,0 +1,397 @@
++/*
++ * xt_quota2 - enhanced xt_quota that can count upwards and in packets
++ * as a minimal accounting match.
++ * by Jan Engelhardt <jengelh@medozas.de>, 2008
++ *
++ * Originally based on xt_quota.c:
++ * 	netfilter module to enforce network quotas
++ * 	Sam Johnston <samj@samj.net>
++ *
++ *	This program is free software; you can redistribute it and/or modify
++ *	it under the terms of the GNU General Public License; either
++ *	version 2 of the License, as published by the Free Software Foundation.
++ */
++#include <linux/list.h>
++#include <linux/module.h>
++#include <linux/proc_fs.h>
++#include <linux/skbuff.h>
++#include <linux/spinlock.h>
++#include <asm/atomic.h>
++#include <net/netlink.h>
++
++#include <linux/netfilter/x_tables.h>
++#include <linux/netfilter/xt_quota2.h>
++
++#ifdef CONFIG_NETFILTER_XT_MATCH_QUOTA2_LOG
++/* For compatibility, these definitions are copied from the
++ * deprecated header file <linux/netfilter_ipv4/ipt_ULOG.h> */
++#define ULOG_MAC_LEN	80
++#define ULOG_PREFIX_LEN	32
++
++/* Format of the ULOG packets passed through netlink */
++typedef struct ulog_packet_msg {
++	unsigned long mark;
++	long timestamp_sec;
++	long timestamp_usec;
++	unsigned int hook;
++	char indev_name[IFNAMSIZ];
++	char outdev_name[IFNAMSIZ];
++	size_t data_len;
++	char prefix[ULOG_PREFIX_LEN];
++	unsigned char mac_len;
++	unsigned char mac[ULOG_MAC_LEN];
++	unsigned char payload[0];
++} ulog_packet_msg_t;
++#endif
++
++/**
++ * @lock:	lock to protect quota writers from each other
++ */
++struct xt_quota_counter {
++	u_int64_t quota;
++	spinlock_t lock;
++	struct list_head list;
++	atomic_t ref;
++	char name[sizeof(((struct xt_quota_mtinfo2 *)NULL)->name)];
++	struct proc_dir_entry *procfs_entry;
++};
++
++#ifdef CONFIG_NETFILTER_XT_MATCH_QUOTA2_LOG
++/* Harald's favorite number +1 :D From ipt_ULOG.C */
++static int qlog_nl_event = 112;
++module_param_named(event_num, qlog_nl_event, uint, S_IRUGO | S_IWUSR);
++MODULE_PARM_DESC(event_num,
++		 "Event number for NETLINK_NFLOG message. 0 disables log."
++		 "111 is what ipt_ULOG uses.");
++static struct sock *nflognl;
++#endif
++
++static LIST_HEAD(counter_list);
++static DEFINE_SPINLOCK(counter_list_lock);
++
++static struct proc_dir_entry *proc_xt_quota;
++static unsigned int quota_list_perms = S_IRUGO | S_IWUSR;
++static kuid_t quota_list_uid = KUIDT_INIT(0);
++static kgid_t quota_list_gid = KGIDT_INIT(0);
++module_param_named(perms, quota_list_perms, uint, S_IRUGO | S_IWUSR);
++
++#ifdef CONFIG_NETFILTER_XT_MATCH_QUOTA2_LOG
++static void quota2_log(unsigned int hooknum,
++		       const struct sk_buff *skb,
++		       const struct net_device *in,
++		       const struct net_device *out,
++		       const char *prefix)
++{
++	ulog_packet_msg_t *pm;
++	struct sk_buff *log_skb;
++	size_t size;
++	struct nlmsghdr *nlh;
++
++	if (!qlog_nl_event)
++		return;
++
++	size = NLMSG_SPACE(sizeof(*pm));
++	size = max(size, (size_t)NLMSG_GOODSIZE);
++	log_skb = alloc_skb(size, GFP_ATOMIC);
++	if (!log_skb) {
++		pr_err("xt_quota2: cannot alloc skb for logging\n");
++		return;
++	}
++
++	nlh = nlmsg_put(log_skb, /*pid*/0, /*seq*/0, qlog_nl_event,
++			sizeof(*pm), 0);
++	if (!nlh) {
++		pr_err("xt_quota2: nlmsg_put failed\n");
++		kfree_skb(log_skb);
++		return;
++	}
++	pm = nlmsg_data(nlh);
++	memset(pm, 0, sizeof(*pm));
++	if (skb->tstamp == 0)
++		__net_timestamp((struct sk_buff *)skb);
++	pm->hook = hooknum;
++	if (prefix != NULL)
++		strlcpy(pm->prefix, prefix, sizeof(pm->prefix));
++	if (in)
++		strlcpy(pm->indev_name, in->name, sizeof(pm->indev_name));
++	if (out)
++		strlcpy(pm->outdev_name, out->name, sizeof(pm->outdev_name));
++
++	NETLINK_CB(log_skb).dst_group = 1;
++	pr_debug("throwing 1 packets to netlink group 1\n");
++	netlink_broadcast(nflognl, log_skb, 0, 1, GFP_ATOMIC);
++}
++#else
++static void quota2_log(unsigned int hooknum,
++		       const struct sk_buff *skb,
++		       const struct net_device *in,
++		       const struct net_device *out,
++		       const char *prefix)
++{
++}
++#endif  /* if+else CONFIG_NETFILTER_XT_MATCH_QUOTA2_LOG */
++
++static ssize_t quota_proc_read(struct file *file, char __user *buf,
++			   size_t size, loff_t *ppos)
++{
++	struct xt_quota_counter *e = PDE_DATA(file_inode(file));
++	char tmp[24];
++	size_t tmp_size;
++
++	spin_lock_bh(&e->lock);
++	tmp_size = scnprintf(tmp, sizeof(tmp), "%llu\n", e->quota);
++	spin_unlock_bh(&e->lock);
++	return simple_read_from_buffer(buf, size, ppos, tmp, tmp_size);
++}
++
++static ssize_t quota_proc_write(struct file *file, const char __user *input,
++                            size_t size, loff_t *ppos)
++{
++	struct xt_quota_counter *e = PDE_DATA(file_inode(file));
++	char buf[sizeof("18446744073709551616")];
++
++	if (size > sizeof(buf))
++		size = sizeof(buf);
++	if (copy_from_user(buf, input, size) != 0)
++		return -EFAULT;
++	buf[sizeof(buf)-1] = '\0';
++	if (size < sizeof(buf))
++		buf[size] = '\0';
++
++	spin_lock_bh(&e->lock);
++	e->quota = simple_strtoull(buf, NULL, 0);
++	spin_unlock_bh(&e->lock);
++	return size;
++}
++
++static const struct proc_ops q2_counter_fops = {
++	.proc_read	= quota_proc_read,
++	.proc_write	= quota_proc_write,
++	.proc_lseek	= default_llseek,
++};
++
++static struct xt_quota_counter *
++q2_new_counter(const struct xt_quota_mtinfo2 *q, bool anon)
++{
++	struct xt_quota_counter *e;
++	unsigned int size;
++
++	/* Do not need all the procfs things for anonymous counters. */
++	size = anon ? offsetof(typeof(*e), list) : sizeof(*e);
++	e = kmalloc(size, GFP_KERNEL);
++	if (e == NULL)
++		return NULL;
++
++	e->quota = q->quota;
++	spin_lock_init(&e->lock);
++	if (!anon) {
++		INIT_LIST_HEAD(&e->list);
++		atomic_set(&e->ref, 1);
++		strlcpy(e->name, q->name, sizeof(e->name));
++	}
++	return e;
++}
++
++/**
++ * q2_get_counter - get ref to counter or create new
++ * @name:	name of counter
++ */
++static struct xt_quota_counter *
++q2_get_counter(const struct xt_quota_mtinfo2 *q)
++{
++	struct proc_dir_entry *p;
++	struct xt_quota_counter *e = NULL;
++	struct xt_quota_counter *new_e;
++
++	if (*q->name == '\0')
++		return q2_new_counter(q, true);
++
++	/* No need to hold a lock while getting a new counter */
++	new_e = q2_new_counter(q, false);
++	if (new_e == NULL)
++		goto out;
++
++	spin_lock_bh(&counter_list_lock);
++	list_for_each_entry(e, &counter_list, list)
++		if (strcmp(e->name, q->name) == 0) {
++			atomic_inc(&e->ref);
++			spin_unlock_bh(&counter_list_lock);
++			kfree(new_e);
++			pr_debug("xt_quota2: old counter name=%s", e->name);
++			return e;
++		}
++	e = new_e;
++	pr_debug("xt_quota2: new_counter name=%s", e->name);
++	list_add_tail(&e->list, &counter_list);
++	/* The entry having a refcount of 1 is not directly destructible.
++	 * This func has not yet returned the new entry, thus iptables
++	 * has not references for destroying this entry.
++	 * For another rule to try to destroy it, it would 1st need for this
++	 * func* to be re-invoked, acquire a new ref for the same named quota.
++	 * Nobody will access the e->procfs_entry either.
++	 * So release the lock. */
++	spin_unlock_bh(&counter_list_lock);
++
++	/* create_proc_entry() is not spin_lock happy */
++	p = e->procfs_entry = proc_create_data(e->name, quota_list_perms,
++	                      proc_xt_quota, &q2_counter_fops, e);
++
++	if (IS_ERR_OR_NULL(p)) {
++		spin_lock_bh(&counter_list_lock);
++		list_del(&e->list);
++		spin_unlock_bh(&counter_list_lock);
++		goto out;
++	}
++	proc_set_user(p, quota_list_uid, quota_list_gid);
++	return e;
++
++ out:
++	kfree(e);
++	return NULL;
++}
++
++static int quota_mt2_check(const struct xt_mtchk_param *par)
++{
++	struct xt_quota_mtinfo2 *q = par->matchinfo;
++
++	pr_debug("xt_quota2: check() flags=0x%04x", q->flags);
++
++	if (q->flags & ~XT_QUOTA_MASK)
++		return -EINVAL;
++
++	q->name[sizeof(q->name)-1] = '\0';
++	if (*q->name == '.' || strchr(q->name, '/') != NULL) {
++		printk(KERN_ERR "xt_quota.3: illegal name\n");
++		return -EINVAL;
++	}
++
++	q->master = q2_get_counter(q);
++	if (q->master == NULL) {
++		printk(KERN_ERR "xt_quota.3: memory alloc failure\n");
++		return -ENOMEM;
++	}
++
++	return 0;
++}
++
++static void quota_mt2_destroy(const struct xt_mtdtor_param *par)
++{
++	struct xt_quota_mtinfo2 *q = par->matchinfo;
++	struct xt_quota_counter *e = q->master;
++
++	if (*q->name == '\0') {
++		kfree(e);
++		return;
++	}
++
++	spin_lock_bh(&counter_list_lock);
++	if (!atomic_dec_and_test(&e->ref)) {
++		spin_unlock_bh(&counter_list_lock);
++		return;
++	}
++
++	list_del(&e->list);
++	spin_unlock_bh(&counter_list_lock);
++	remove_proc_entry(e->name, proc_xt_quota);
++	kfree(e);
++}
++
++static bool
++quota_mt2(const struct sk_buff *skb, struct xt_action_param *par)
++{
++	struct xt_quota_mtinfo2 *q = (void *)par->matchinfo;
++	struct xt_quota_counter *e = q->master;
++	int charge = (q->flags & XT_QUOTA_PACKET) ? 1 : skb->len;
++	bool no_change = q->flags & XT_QUOTA_NO_CHANGE;
++	bool ret = q->flags & XT_QUOTA_INVERT;
++
++	spin_lock_bh(&e->lock);
++	if (q->flags & XT_QUOTA_GROW) {
++		/*
++		 * While no_change is pointless in "grow" mode, we will
++		 * implement it here simply to have a consistent behavior.
++		 */
++		if (!no_change)
++			e->quota += charge;
++		ret = true; /* note: does not respect inversion (bug??) */
++	} else {
++		if (e->quota > charge) {
++			if (!no_change)
++				e->quota -= charge;
++			ret = !ret;
++		} else if (e->quota) {
++			/* We are transitioning, log that fact. */
++			quota2_log(xt_hooknum(par),
++				   skb,
++				   xt_in(par),
++				   xt_out(par),
++				   q->name);
++			/* we do not allow even small packets from now on */
++			e->quota = 0;
++		}
++	}
++	spin_unlock_bh(&e->lock);
++	return ret;
++}
++
++static struct xt_match quota_mt2_reg[] __read_mostly = {
++	{
++		.name       = "quota2",
++		.revision   = 3,
++		.family     = NFPROTO_IPV4,
++		.checkentry = quota_mt2_check,
++		.match      = quota_mt2,
++		.destroy    = quota_mt2_destroy,
++		.matchsize  = sizeof(struct xt_quota_mtinfo2),
++		.usersize   = offsetof(struct xt_quota_mtinfo2, master),
++		.me         = THIS_MODULE,
++	},
++	{
++		.name       = "quota2",
++		.revision   = 3,
++		.family     = NFPROTO_IPV6,
++		.checkentry = quota_mt2_check,
++		.match      = quota_mt2,
++		.destroy    = quota_mt2_destroy,
++		.matchsize  = sizeof(struct xt_quota_mtinfo2),
++		.usersize   = offsetof(struct xt_quota_mtinfo2, master),
++		.me         = THIS_MODULE,
++	},
++};
++
++static int __init quota_mt2_init(void)
++{
++	int ret;
++	pr_debug("xt_quota2: init()");
++
++#ifdef CONFIG_NETFILTER_XT_MATCH_QUOTA2_LOG
++	nflognl = netlink_kernel_create(&init_net, NETLINK_NFLOG, NULL);
++	if (!nflognl)
++		return -ENOMEM;
++#endif
++
++	proc_xt_quota = proc_mkdir("xt_quota", init_net.proc_net);
++	if (proc_xt_quota == NULL)
++		return -EACCES;
++
++	ret = xt_register_matches(quota_mt2_reg, ARRAY_SIZE(quota_mt2_reg));
++	if (ret < 0)
++		remove_proc_entry("xt_quota", init_net.proc_net);
++	pr_debug("xt_quota2: init() %d", ret);
++	return ret;
++}
++
++static void __exit quota_mt2_exit(void)
++{
++	xt_unregister_matches(quota_mt2_reg, ARRAY_SIZE(quota_mt2_reg));
++	remove_proc_entry("xt_quota", init_net.proc_net);
++}
++
++module_init(quota_mt2_init);
++module_exit(quota_mt2_exit);
++MODULE_DESCRIPTION("Xtables: countdown quota match; up counter");
++MODULE_AUTHOR("Sam Johnston <samj@samj.net>");
++MODULE_AUTHOR("Jan Engelhardt <jengelh@medozas.de>");
++MODULE_LICENSE("GPL");
++MODULE_ALIAS("ipt_quota2");
++MODULE_ALIAS("ip6t_quota2");
+-- 
+2.34.1
+
